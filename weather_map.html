@@ -21,31 +21,54 @@
             width: 100%;
             background-color: #f0f2f5;
         }
-        /* 控制面板的样式 */
+        /* 悬浮按钮样式 */
+        .toggle-settings-btn {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            z-index: 1200;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #1976d2;
+            color: #fff;
+            border: none;
+            font-size: 2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .toggle-settings-btn:hover {
+            background: #1565c0;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+        }
+        /* 设置面板样式 */
         .layer-controls {
             position: absolute;
-            top: 10px;
-            right: 10px;
-            background: white;
-            padding: 5px 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            z-index: 1000; /* 确保在地图上层 */
-            max-width: 200px;
+            top: 18px;
+            right: 18px;
+            background: rgba(255,255,255,0.98);
+            padding: 18px 20px 10px 20px;
+            border-radius: 14px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+            z-index: 1100;
+            max-width: 260px;
+            min-width: 180px;
+            transition: opacity 0.25s, transform 0.25s, visibility 0.25s;
         }
-        .control-section {
-            margin-bottom: 10px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }
-        .control-section:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
-            padding-bottom: 5px;
+        .layer-controls.collapsed {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-20px) scale(0.98);
+            visibility: hidden;
         }
         .layer-controls h3 {
             margin: 5px 0 10px 0;
-            font-size: 16px;
+            font-size: 15px;
+            color: #1976d2;
         }
         .layer-controls label {
             display: block;
@@ -58,9 +81,15 @@
         .layer-controls input[type="radio"], .layer-controls input[type="checkbox"] {
             margin-right: 8px;
         }
-        /* 透明度滑块样式 */
-        .opacity-control {
-            font-size: 14px;
+        .control-section {
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .control-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 5px;
         }
         .opacity-control input[type="range"] {
             width: 100%;
@@ -71,14 +100,14 @@
             position: absolute;
             bottom: 20px;
             left: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 10px;
-            border-radius: 5px;
-            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            background: rgba(255, 255, 255, 0.93);
+            padding: 10px 14px 8px 14px;
+            border-radius: 8px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.18);
             z-index: 1000;
-            display: none; /* 默认隐藏 */
-            font-size: 12px;
+            font-size: 13px;
             line-height: 1.5;
+            min-width: 180px;
         }
         .legend-title {
             font-weight: bold;
@@ -87,24 +116,40 @@
         }
         .legend-gradient {
             height: 15px;
-            width: 200px;
+            width: 180px;
             border-radius: 3px;
             border: 1px solid #ccc;
         }
         .legend-labels {
             display: flex;
             justify-content: space-between;
-            width: 200px;
+            width: 180px;
             margin-top: 3px;
+        }
+        @media (max-width: 600px) {
+            .toggle-settings-btn, .layer-controls {
+                right: 2vw;
+            }
+            .layer-controls {
+                max-width: 96vw;
+                min-width: 0;
+                width: 92vw;
+                padding: 12px 6vw 8px 6vw;
+            }
+            .legend-container, .legend-gradient, .legend-labels {
+                width: 60vw !important;
+                min-width: 100px;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- 悬浮展开/收起按钮 -->
+    <button id="toggle-settings-btn" class="toggle-settings-btn" title="收起设置">−</button>
     <!-- 地图将在这个 div 中渲染 -->
     <div id="map"></div>
-
-    <!-- 图层切换的控制面板 -->
-    <div class="layer-controls">
+    <!-- 图层切换的控制面板（默认收起） -->
+    <div class="layer-controls" id="settings-panel">
         <div class="control-section">
             <h3>底图选择</h3>
             <label><input type="radio" name="baseLayer" value="street" checked> 街道地图</label>
@@ -126,11 +171,8 @@
             </div>
         </div>
     </div>
-
     <!-- 图例/色标容器 -->
-    <div id="legend" class="legend-container">
-        <!-- 图例内容将由JavaScript动态生成 -->
-    </div>
+    <div id="legend" class="legend-container"></div>
 
     <!-- 引入 Leaflet.js 的脚本文件 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -247,21 +289,30 @@
                 return;
             }
 
-            const lat = parseFloat(urlParams.get('lat')) || 39.90;
-            const lon = parseFloat(urlParams.get('lon')) || 116.40;
-            
-            map = L.map('map').setView([lat, lon], 5);
+            // 默认北京
+            const lat = parseFloat(urlParams.get('lat')) || 39.9042;
+            const lon = parseFloat(urlParams.get('lon')) || 116.4074;
+            const zoom = parseInt(urlParams.get('zoom')) || 7;
+            map = L.map('map').setView([lat, lon], zoom);
+            // 天地图矢量底图
             baseLayers.street = L.tileLayer(
-                'https://rt0.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=0&scene=0&version=347',
+                'http://t{s}.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk=913e93477a1fda057e4c80176cca6736',
                 {
-                    attribution: '© Tencent',
+                    subdomains: '01234567',
+                    attribution: '© 天地图',
                     maxZoom: 18,
                     minZoom: 1
                 }
             ).addTo(map);
-            baseLayers.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-                attribution: 'Tiles &copy; Esri'
-            });
+            // Esri卫星影像底图
+            baseLayers.satellite = L.tileLayer(
+                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                {
+                    attribution: 'Tiles &copy; Esri',
+                    maxZoom: 18,
+                    minZoom: 1
+                }
+            );
             setupEventListeners();
             switchWeatherLayer('precipitation');
         }
@@ -329,6 +380,24 @@
 
         // --- 页面加载完成后执行初始化 ---
         document.addEventListener('DOMContentLoaded', initialize);
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const panel = document.getElementById('settings-panel');
+            const btn = document.getElementById('toggle-settings-btn');
+            let collapsed = false; // 默认展开
+            function updateBtn() {
+                btn.textContent = collapsed ? '+' : '−';
+                btn.title = collapsed ? '展开设置' : '收起设置';
+            }
+            btn.onclick = function() {
+                collapsed = !collapsed;
+                panel.classList.toggle('collapsed', collapsed);
+                updateBtn();
+            };
+            // 默认展开，不加collapsed类
+            panel.classList.remove('collapsed');
+            updateBtn();
+        });
     </script>
 </body>
 </html>
