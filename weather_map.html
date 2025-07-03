@@ -139,8 +139,7 @@
         let map;
         let baseLayers = {};
         let currentTileLayer = null;
-        
-        const BACKEND_API_BASE = 'https://wechat-backend-service-07r4.onrender.com';
+        let apiKey = ''; // 密钥将从URL参数中获取
         
         const LAYER_CODES = {
             precipitation: "PR0",
@@ -220,6 +219,7 @@
         ]
         };
 
+
         const LEGEND_TITLES = {
             precipitation: "降水强度",
             temperature: "温度 (°C)",
@@ -228,9 +228,29 @@
             pressure: "气压 (hPa)",
         };
 
+        // *** 关键修改：为每个图层自定义图例标签 ***
+        const LEGEND_LABELS = {
+            PR0: `<span>小</span><span>中</span><span>大</span>`,
+            TA2: `<span>-65</span><span>0</span><span>30</span>`,
+            CL: `<span>0%</span><span>50%</span><span>200%</span>`,
+            WS10: `<span>1</span><span>15</span><span>>200</span>`,
+            APM: `<span>940</span><span>1010</span><span>1080</span>`
+        };
+
         // --- 初始化函数 ---
         function initialize() {
-            map = L.map('map').setView([39.90, 116.40], 5);
+            const urlParams = new URLSearchParams(window.location.search);
+            apiKey = urlParams.get('apiKey');
+
+            if (!apiKey) {
+                document.getElementById('map').innerHTML = `<div style="padding: 20px; text-align: center;"><h2>错误：未提供API密钥</h2><p>请提供。</p></div>`;
+                return;
+            }
+
+            const lat = parseFloat(urlParams.get('lat')) || 39.90;
+            const lon = parseFloat(urlParams.get('lon')) || 116.40;
+            
+            map = L.map('map').setView([lat, lon], 5);
             baseLayers.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
@@ -267,7 +287,7 @@
             if (currentTileLayer) map.removeLayer(currentTileLayer);
 
             const opCode = LAYER_CODES[layerKey];
-            const tileUrl = `${BACKEND_API_BASE}/api/weather/map_tile/${opCode}/{z}/{x}/{y}`;
+            const tileUrl = `https://maps.openweathermap.org/maps/2.0/weather/${opCode}/{z}/{x}/{y}?appid=${apiKey}`;
             
             currentTileLayer = L.tileLayer(tileUrl, {
                 opacity: document.getElementById('opacity-slider').value
@@ -288,10 +308,11 @@
 
             const title = LEGEND_TITLES[layerKey] || layerKey;
             
-            const gradientColors = palette.map(p => p.color).join(', ');
+            const gradientColors = palette.map(p => `#${p.color.slice(0, 6)}`).join(', ');
             const gradientCss = `linear-gradient(to right, ${gradientColors})`;
             
-            const labelsHtml = `<span>${palette[0].value}</span><span>${palette[Math.floor(palette.length / 2)].value}</span><span>${palette[palette.length - 1].value}</span>`;
+            // *** 关键修改：使用预设的标签HTML ***
+            const labelsHtml = LEGEND_LABELS[opCode];
 
             legendContainer.innerHTML = `
                 <div class="legend-title">${title}</div>
