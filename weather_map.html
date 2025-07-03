@@ -313,7 +313,7 @@
 
             const title = LEGEND_TITLES[layerKey] || layerKey;
             
-            const gradientColors = palette.map(p => `#${p.color.slice(0, 6)}`).join(', ');
+            Colors = palette.map(p => p.color.slice(0, 7)).join(', ');
             const gradientCss = `linear-gradient(to right, ${gradientColors})`;
             
             // *** 关键修改：使用预设的标签HTML ***
