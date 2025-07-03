@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>交互式气象地图</title>
+    <!-- 引入 Leaflet.js 的样式文件 -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        /* 确保页面和地图容器占满整个屏幕 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+            background-color: #f0f2f5;
+        }
+        /* 控制面板的样式 */
+        .layer-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 5px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 1000; /* 确保在地图上层 */
+            max-width: 200px;
+        }
+        .control-section {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .control-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 5px;
+        }
+        .layer-controls h3 {
+            margin: 5px 0 10px 0;
+            font-size: 16px;
+        }
+        .layer-controls label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+        .layer-controls input[type="radio"], .layer-controls input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        /* 透明度滑块样式 */
+        .opacity-control {
+            font-size: 14px;
+        }
+        .opacity-control input[type="range"] {
+            width: 100%;
+            vertical-align: middle;
+        }
+        /* 图例/色标样式 */
+        .legend-container {
+            position: absolute;
+            bottom: 20px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            z-index: 1000;
+            display: none; /* 默认隐藏 */
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+        .legend-gradient {
+            height: 15px;
+            width: 200px;
+            border-radius: 3px;
+            border: 1px solid #ccc;
+        }
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            width: 200px;
+            margin-top: 3px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 地图将在这个 div 中渲染 -->
+    <div id="map"></div>
+
+    <!-- 图层切换的控制面板 -->
+    <div class="layer-controls">
+        <div class="control-section">
+            <h3>底图选择</h3>
+            <label><input type="radio" name="baseLayer" value="street" checked> 街道地图</label>
+            <label><input type="radio" name="baseLayer" value="satellite"> 卫星影像</label>
+        </div>
+        <div class="control-section">
+            <h3>天气图层</h3>
+            <label><input type="radio" name="weatherLayer" value="precipitation" checked> 降水</label>
+            <label><input type="radio" name="weatherLayer" value="clouds"> 云图</label>
+            <label><input type="radio" name="weatherLayer" value="temperature"> 温度</label>
+            <label><input type="radio" name="weatherLayer" value="wind_speed"> 风速</label>
+            <label><input type="radio" name="weatherLayer" value="pressure"> 气压</label>
+        </div>
+        <div class="control-section">
+            <h3>图层选项</h3>
+            <div class="opacity-control">
+                <label for="opacity-slider">透明度: <span id="opacity-value">0.7</span></label>
+                <input type="range" id="opacity-slider" min="0" max="1" step="0.1" value="0.7">
+            </div>
+        </div>
+    </div>
+
+    <!-- 图例/色标容器 -->
+    <div id="legend" class="legend-container">
+        <!-- 图例内容将由JavaScript动态生成 -->
+    </div>
+
+    <!-- 引入 Leaflet.js 的脚本文件 -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // --- 全局变量 ---
+        let map;
+        let baseLayers = {};
+        let currentTileLayer = null;
+        
+        const BACKEND_API_BASE = 'https://wechat-backend-service-07r4.onrender.com';
+        
+        const LAYER_CODES = {
+            precipitation: "PR0",
+            temperature: "TA2",
+            clouds: "CL",
+            wind_speed: "WS10",
+            pressure: "APM",
+        };
+        
+        const PALETTES = {
+        PR0: [ // Precipitation intensity
+            { value: 0.000005, color: '#FEF9CAFF' },
+            { value: 0.000009, color: '#B9F7A8FF' },
+            { value: 0.000014, color: '#93F57DFF' },
+            { value: 0.000023, color: '#78F554FF' },
+            { value: 0.000046, color: '#50B033FF' },
+            { value: 0.000092, color: '#387F22FF' },
+            { value: 0.000231, color: '#204E11FF' },
+            { value: 0.000463, color: '#F2A33AFF' },
+            { value: 0.000694, color: '#E96F2DFF' },
+            { value: 0.000926, color: '#EB4726FF' },
+            { value: 0.001388, color: '#B02318FF' },
+            { value: 0.002315, color: '#971D13FF' },
+            { value: 0.023150, color: '#090A08FF' }
+        ],
+
+        TA2: [ // Air temperature at 2 m
+            { value: -65, color: '#821692FF' },
+            { value: -55, color: '#821692FF' },
+            { value: -45, color: '#821692FF' },
+            { value: -40, color: '#821692FF' },
+            { value: -30, color: '#8257DBFF' },
+            { value: -20, color: '#208CECFF' },
+            { value: -10, color: '#20C4E8FF' },
+            { value:   0, color: '#23DDDDFF' },
+            { value:  10, color: '#C2FF28FF' },
+            { value:  20, color: '#FFF028FF' },
+            { value:  25, color: '#FFC228FF' },
+            { value:  30, color: '#FC8014FF' }
+        ],
+
+        CL: [ // Cloudiness
+            { value:   0, color: '#FFFFFF00' },
+            { value:  10, color: '#FDFDFF19' },
+            { value:  20, color: '#FCFBFF26' },
+            { value:  30, color: '#FAFAFF33' },
+            { value:  40, color: '#F9F8FF4C' },
+            { value:  50, color: '#F7F7FF66' },
+            { value:  60, color: '#F6F5FF8C' },
+            { value:  70, color: '#F4F4FFBF' },
+            { value:  80, color: '#E9E9DFCC' },
+            { value:  90, color: '#DEDEDED8' },
+            { value: 100, color: '#D2D2D2FF' },
+            { value: 200, color: '#D2D2D2FF' }
+        ],
+
+        WS10: [ // Wind speed at 10 m
+            { value:   1, color: '#FFFFFF00' },
+            { value:   5, color: '#EECECC66' },
+            { value:  15, color: '#B364BCB3' },
+            { value:  25, color: '#3F213BCC' },
+            { value:  50, color: '#744CACE6' },
+            { value: 100, color: '#4600AFFF' },
+            { value: 200, color: '#0D1126FF' }
+        ],
+
+        APM: [ // Mean sea level pressure (hPa)
+            { value:  940, color: '#0073FFFF' },
+            { value:  960, color: '#00AAFFFF' },
+            { value:  980, color: '#4BD0D6FF' },
+            { value: 1000, color: '#8DE7C7FF' },
+            { value: 1010, color: '#B0F720FF' },
+            { value: 1020, color: '#F0B800FF' },
+            { value: 1040, color: '#FB5515FF' },
+            { value: 1060, color: '#F3363BFF' },
+            { value: 1080, color: '#C60000FF' }
+        ]
+        };
+
+        const LEGEND_TITLES = {
+            precipitation: "降水强度",
+            temperature: "温度 (°C)",
+            clouds: "云量 (%)",
+            wind_speed: "风速 (m/s)",
+            pressure: "气压 (hPa)",
+        };
+
+        // --- 初始化函数 ---
+        function initialize() {
+            map = L.map('map').setView([39.90, 116.40], 5);
+            baseLayers.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            baseLayers.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri'
+            });
+            setupEventListeners();
+            switchWeatherLayer('precipitation');
+        }
+
+        // --- 事件监听设置函数 ---
+        function setupEventListeners() {
+            document.querySelectorAll('input[name="baseLayer"]').forEach(radio => {
+                radio.addEventListener('change', function() { switchBaseLayer(this.value); });
+            });
+            document.querySelectorAll('input[name="weatherLayer"]').forEach(radio => {
+                radio.addEventListener('change', function() { switchWeatherLayer(this.value); });
+            });
+            const opacitySlider = document.getElementById('opacity-slider');
+            opacitySlider.addEventListener('input', function() {
+                if (currentTileLayer) currentTileLayer.setOpacity(this.value);
+                document.getElementById('opacity-value').textContent = this.value;
+            });
+        }
+
+        // --- 功能函数 ---
+        function switchBaseLayer(layerKey) {
+            Object.values(baseLayers).forEach(layer => map.removeLayer(layer));
+            map.addLayer(baseLayers[layerKey]);
+        }
+        
+        function switchWeatherLayer(layerKey) {
+            if (!LAYER_CODES[layerKey]) return;
+            if (currentTileLayer) map.removeLayer(currentTileLayer);
+
+            const opCode = LAYER_CODES[layerKey];
+            const tileUrl = `${BACKEND_API_BASE}/api/weather/map_tile/${opCode}/{z}/{x}/{y}`;
+            
+            currentTileLayer = L.tileLayer(tileUrl, {
+                opacity: document.getElementById('opacity-slider').value
+            }).addTo(map);
+            
+            updateLegend(layerKey);
+        }
+
+        function updateLegend(layerKey) {
+            const legendContainer = document.getElementById('legend');
+            const opCode = LAYER_CODES[layerKey];
+            const palette = PALETTES[opCode];
+
+            if (!palette || palette.length === 0) {
+                legendContainer.style.display = 'none';
+                return;
+            }
+
+            const title = LEGEND_TITLES[layerKey] || layerKey;
+            
+            const gradientColors = palette.map(p => p.color).join(', ');
+            const gradientCss = `linear-gradient(to right, ${gradientColors})`;
+            
+            const labelsHtml = `<span>${palette[0].value}</span><span>${palette[Math.floor(palette.length / 2)].value}</span><span>${palette[palette.length - 1].value}</span>`;
+
+            legendContainer.innerHTML = `
+                <div class="legend-title">${title}</div>
+                <div class="legend-gradient" style="background: ${gradientCss};"></div>
+                <div class="legend-labels">${labelsHtml}</div>
+            `;
+            legendContainer.style.display = 'block';
+        }
+
+        // --- 页面加载完成后执行初始化 ---
+        document.addEventListener('DOMContentLoaded', initialize);
+    </script>
+</body>
+</html>
