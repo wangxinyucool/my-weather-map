@@ -251,9 +251,14 @@
             const lon = parseFloat(urlParams.get('lon')) || 116.40;
             
             map = L.map('map').setView([lat, lon], 5);
-            baseLayers.street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }).addTo(map);
+            baseLayers.street = L.tileLayer(
+                'https://rt0.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=0&scene=0&version=347',
+                {
+                    attribution: '© Tencent',
+                    maxZoom: 18,
+                    minZoom: 1
+                }
+            ).addTo(map);
             baseLayers.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
                 attribution: 'Tiles &copy; Esri'
             });
